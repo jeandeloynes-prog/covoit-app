@@ -1,28 +1,38 @@
-name: CI (lint + typecheck + format)
+# .github/workflows/ci.yml
+name: CI
+
 on:
   push:
     branches: [ main ]
   pull_request:
-permissions:
-  contents: read
+    branches: [ main ]
+
 jobs:
   quality:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
-      - run: npm ci
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
 
-      - name: TypeScript typecheck
-        run: npm run typecheck
+      - name: Prettier check
+        run: npx prettier --check .
 
       - name: ESLint
-        run: npm run lint
+        run: npx next lint
 
-      - name: Prettier (check)
-        run: npm run format
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: Next build (dry-run qualité)
+        run: npx next build
