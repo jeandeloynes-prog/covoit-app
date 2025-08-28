@@ -1,11 +1,8 @@
 // next.config.mjs
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  eslint: {
-    // TEMPORAIRE: n’empêche pas le build si ESLint/Prettier trouvent des erreurs
-    ignoreDuringBuilds: true,
-  },
-  // Tu peux ajouter d’autres options Next ici au besoin
+  // ESLint et TypeScript tourneront normalement pendant `next build`.
+  // Ajoute d'autres options Next ici si besoin.
 };
 
 export default nextConfig;
