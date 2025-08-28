@@ -1,12 +1,21 @@
 {
   "compilerOptions": {
-    "target": "es2020",
-    "lib": ["dom", "es2020"],
-    "jsx": "react-jsx",
+    "target": "es2022",
+    "lib": ["dom", "dom.iterable", "es2022"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "noEmit": true,
     "module": "esnext",
     "moduleResolution": "bundler",
-    "strict": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
     "baseUrl": ".",
-    "paths": { "@/*": ["*"] }
-  }
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules"]
 }
