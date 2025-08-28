@@ -1,3 +1,4 @@
+// .prettierrc
 {
   "singleQuote": true,
   "arrowParens": "avoid",
