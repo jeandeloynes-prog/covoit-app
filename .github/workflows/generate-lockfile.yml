@@ -1,0 +1,30 @@
+name: Generate lockfile
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "package.json"
+jobs:
+  lockfile:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: rm -rf node_modules
+      - run: npm ci
+      - name: Commit lockfile if changed
+        run: |
+          if [ -n "$(git status --porcelain package-lock.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "chore: generate lockfile"
+            git push
+          else
+            echo "No changes to lockfile."
+          fi
