@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js"; // <- ajout
 
 export default function UserButton() {
   const supabase = getSupabaseBrowserClient();
@@ -19,9 +20,11 @@ export default function UserButton() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setEmail(session?.user?.email ?? null);
-    });
+    } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, session: Session | null) => { // <- typé
+        setEmail(session?.user?.email ?? null);
+      }
+    );
 
     return () => {
       mounted = false;
