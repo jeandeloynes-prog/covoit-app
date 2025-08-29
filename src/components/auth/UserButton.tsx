@@ -11,13 +11,14 @@ export default function UserButton() {
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getUser().then(({ data }) => {
+    (async () => {
+      const { data } = await supabase.auth.getUser();
       if (!mounted) return;
       setEmail(data.user?.email ?? null);
-    });
+    })();
 
     const {
-      data: { subscription }
+      data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setEmail(session?.user?.email ?? null);
     });
@@ -30,23 +31,16 @@ export default function UserButton() {
 
   if (!email) {
     return (
-      <button
-        onClick={async () => {
-          // Exemple de signIn (adapter à ton provider/flow)
-          await supabase.auth.signInWithOtp({ email: "john@example.com" });
-        }}
-      >
+      <button onClick={async () => {
+        await supabase.auth.signInWithOtp({ email: "john@example.com" });
+      }}>
         Sign in
       </button>
     );
   }
 
   return (
-    <button
-      onClick={async () => {
-        await supabase.auth.signOut();
-      }}
-    >
+    <button onClick={async () => { await supabase.auth.signOut(); }}>
       {email} – Sign out
     </button>
   );
