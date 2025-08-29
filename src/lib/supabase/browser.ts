@@ -2,10 +2,10 @@
 "use client";
 
 import { createBrowserClient } from "@supabase/ssr";
-import type { SupabaseClient, GenericSchema } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-// Schéma minimal pour satisfaire les génériques ("public" doit exister)
-type Database = { public: GenericSchema };
+// Typage minimal compatible sans dépendre de GenericSchema
+type Database = any;
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
