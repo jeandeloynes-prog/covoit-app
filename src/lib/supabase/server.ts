@@ -1,66 +1,36 @@
-// src/lib/supabase/client.ts
+// src/lib/supabase/server.ts
 "use server";
 
 import { cookies, headers } from "next/headers";
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { createServerClient } from "@supabase/ssr";
+import type { SupabaseClient, GenericSchema } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+type Database = { public: GenericSchema };
 
-/**
- * Client Supabase pour les actions/route handlers (App Router).
- * Note: cookies().set/remove ne sont autorisés qu’en Server Actions/Route Handlers.
- * Si tu l’appelles depuis un RSC pur, voir variante “read-only” plus bas.
- */
-export function getSupabaseServerClient() {
+export function getSupabaseServerClient(): SupabaseClient<Database> {
   const cookieStore = cookies();
+  const headerStore = headers();
 
-  return createServerClient(
-    supabaseUrl,
-    supabaseAnonKey,
+  return createServerClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, // selon ton choix
     {
       cookies: {
-        get(name: string) {
+        get(name) {
           return cookieStore.get(name)?.value;
         },
-        set(name: string, value: string, options: CookieOptions) {
-          // autorisé en Server Actions / Route Handlers
+        set(name, value, options) {
           cookieStore.set({ name, value, ...options });
         },
-        remove(name: string, options: CookieOptions) {
+        remove(name, options) {
           cookieStore.set({ name, value: "", ...options });
-        }
+        },
       },
       headers: {
-        get(key: string) {
-          return headers().get(key) ?? undefined;
-        }
-      }
+        get(key) {
+          return headerStore.get(key) ?? undefined;
+        },
+      },
     }
   );
 }
-
-/**
- * Variante “read-only” si besoin dans un RSC pur (ne tente pas d’écrire des cookies).
- */
-// export function getSupabaseServerClientReadOnly() {
-//   return createServerClient(
-//     supabaseUrl,
-//     supabaseAnonKey,
-//     {
-//       cookies: {
-//         get(name: string) {
-//           return cookies().get(name)?.value;
-//         },
-//         // no-ops pour éviter les erreurs hors actions/routes
-//         set: () => {},
-//         remove: () => {}
-//       },
-//       headers: {
-//         get(key: string) {
-//           return headers().get(key) ?? undefined;
-//         }
-//       }
-//     }
-//   );
-// }
