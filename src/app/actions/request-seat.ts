@@ -8,5 +8,9 @@ export async function requestSeat(formData: FormData) {
   const passengers = Number(formData.get("passengers") || 1);
   const message = String(formData.get("message") || "");
 
-  await requestBooking({ rideId, passengers, message: message || undefined });
+await requestBooking({
+  rideId,
+  passengers,
+  ...(message ? { message } : {})
+});
 }
