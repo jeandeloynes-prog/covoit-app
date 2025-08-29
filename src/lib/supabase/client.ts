@@ -1,66 +1,30 @@
 // src/lib/supabase/client.ts
-"use server";
-
-import { cookies, headers } from "next/headers";
+// Fichier serveur (pas de "use client")
+import { cookies } from "next/headers";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+// Typage minimal, remplace par tes types générés plus tard
+type Database = any;
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-/**
- * Client Supabase pour les actions/route handlers (App Router).
- * Note: cookies().set/remove ne sont autorisés qu’en Server Actions/Route Handlers.
- * Si tu l’appelles depuis un RSC pur, voir variante “read-only” plus bas.
- */
-export function getSupabaseServerClient() {
+export function getSupabaseServerClient(): SupabaseClient<Database> {
   const cookieStore = cookies();
 
-  return createServerClient(
-    supabaseUrl,
-    supabaseAnonKey,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set(name: string, value: string, options: CookieOptions) {
-          // autorisé en Server Actions / Route Handlers
-          cookieStore.set({ name, value, ...options });
-        },
-        remove(name: string, options: CookieOptions) {
-          cookieStore.set({ name, value: "", ...options });
-        }
+  return createServerClient<Database>(supabaseUrl, supabaseAnonKey, {
+    // Ne PAS inclure "headers" ici: l'API ne le supporte pas dans ta version.
+    cookies: {
+      get(name: string) {
+        return cookieStore.get(name)?.value;
       },
-      headers: {
-        get(key: string) {
-          return headers().get(key) ?? undefined;
-        }
-      }
-    }
-  );
+      set(name: string, value: string, options: CookieOptions) {
+        cookieStore.set({ name, value, ...options });
+      },
+      remove(name: string, options: CookieOptions) {
+        cookieStore.set({ name, value: "", ...options });
+      },
+    },
+  });
 }
-
-/**
- * Variante “read-only” si besoin dans un RSC pur (ne tente pas d’écrire des cookies).
- */
-// export function getSupabaseServerClientReadOnly() {
-//   return createServerClient(
-//     supabaseUrl,
-//     supabaseAnonKey,
-//     {
-//       cookies: {
-//         get(name: string) {
-//           return cookies().get(name)?.value;
-//         },
-//         // no-ops pour éviter les erreurs hors actions/routes
-//         set: () => {},
-//         remove: () => {}
-//       },
-//       headers: {
-//         get(key: string) {
-//           return headers().get(key) ?? undefined;
-//         }
-//       }
-//     }
-//   );
-// }
