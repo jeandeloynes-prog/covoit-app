@@ -1,8 +1,8 @@
 // next.config.mjs
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // ESLint et TypeScript tourneront normalement pendant `next build`.
-  // Ajoute d'autres options Next ici si besoin.
+  reactStrictMode: true,
+  experimental: { serverActions: { allowedOrigins: ["*"] } },
 };
 
 export default nextConfig;
