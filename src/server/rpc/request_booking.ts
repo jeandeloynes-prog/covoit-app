@@ -1,15 +1,17 @@
 // src/server/rpc/request_booking.ts
 
-export type RequestBookingInput = {
-  rideId: string;
-  passengers: number;
-  message?: string;
-  /**
-   * Optionnel: si tu veux passer l'userId depuis le serveur (ex: via cookies).
-   * Sinon on pourra le déduire côté serveur via la session Supabase.
-   */
-  userId?: string;
-};
+
+diff --git a/src/server/rpc/request_booking.ts b/src/server/rpc/request_booking.ts
+index 1111111..2222222 100644
+--- a/src/server/rpc/request_booking.ts
++++ b/src/server/rpc/request_booking.ts
+@@ export type RequestBookingInput = {
+-  message?: string;
++  message?: string | undefined;
+-  userId?: string;
++  userId?: string | undefined;
+ }
+
 
 export type RequestBookingResult = {
   ok: boolean;
