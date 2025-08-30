@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { listPendingRequestsAction } from "@/server/actions/listPendingRequests";
 import { rejectBookingAction } from "@/server/actions/rejectBooking";
 import { acceptBookingAction } from "@/server/actions/acceptBooking";
@@ -14,6 +14,10 @@ type Row = {
   trip_id: string;
   trip_starts_at: string | null;
 };
+
+type ActionResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error?: string };
 
 // Format FR sans lib externe
 const fmt = (d: string | Date | null) =>
@@ -42,18 +46,19 @@ export function DriverInbox() {
   const [linePending, setLinePending] = useState<Set<string>>(new Set());
   const { success: toastOk, error: toastErr } = useToast();
 
-  async function refresh() {
-    const res = await listPendingRequestsAction();
+  // Mémoriser refresh pour satisfaire react-hooks/exhaustive-deps
+  const refresh = useCallback(async () => {
+    const res = (await listPendingRequestsAction()) as ActionResult<Row[]>;
     if (!res.ok) {
       toastErr(res.error ?? "Erreur de chargement");
     } else {
       setRows(res.data);
     }
-  }
+  }, [toastErr]);
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [refresh]);
 
   const isLinePending = useMemo(
     () => (id: string) => linePending.has(id),
@@ -65,16 +70,17 @@ export function DriverInbox() {
     const target = rows.find((r) => r.booking_id === bookingId);
     if (!target) return;
 
-    // Optimiste: retirer la ligne
+    // Optimiste: retirer la ligne immédiatement
     setRows((prev) => prev.filter((r) => r.booking_id !== bookingId));
     setLinePending((s) => new Set(s).add(bookingId));
 
     startTransition(async () => {
       try {
+        // IMPORTANT: passer un objet { bookingId } aux actions
         const res =
           action === "accept"
-            ? await acceptBookingAction(bookingId)
-            : await rejectBookingAction(bookingId);
+            ? ((await acceptBookingAction({ bookingId })) as ActionResult<unknown>)
+            : ((await rejectBookingAction({ bookingId })) as ActionResult<unknown>);
 
         if (!res.ok) {
           // rollback
@@ -93,7 +99,7 @@ export function DriverInbox() {
           n.delete(bookingId);
           return n;
         });
-        // Option: re-sync pour refléter des changements backend
+        // Option: re-sync pour refléter d'autres effets backend
         // await refresh();
       }
     });
