@@ -5,6 +5,7 @@ import { listPendingRequestsAction } from "@/server/actions/listPendingRequests"
 import { rejectBookingAction } from "@/server/actions/rejectBooking";
 import { acceptBookingAction } from "@/server/actions/acceptBooking";
 import { useToast } from "@/components/toast/ToastProvider";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 
 type Row = {
   booking_id: string;
@@ -17,9 +18,8 @@ type Row = {
 
 type ActionResult<T> =
   | { ok: true; data: T }
-  | { ok: false; error?: string };
+  | { ok: false; error?: string; code?: string };
 
-// Format FR sans lib externe
 const fmt = (d: string | Date | null) =>
   d
     ? new Date(d).toLocaleString("fr-BE", {
@@ -43,89 +43,122 @@ const since = (d: string | Date) => {
 export function DriverInbox() {
   const [rows, setRows] = useState<Row[]>([]);
   const [pending, startTransition] = useTransition();
-  const [linePending, setLinePending] = useState<Set<string>>(new Set());
-  const { success: toastOk, error: toastErr } = useToast();
+  const { toast } = useToast();
 
-  // Mémoriser refresh pour satisfaire react-hooks/exhaustive-deps
   const refresh = useCallback(async () => {
     const res = (await listPendingRequestsAction()) as ActionResult<Row[]>;
-    if (!res.ok) {
-      toastErr(res.error ?? "Erreur de chargement");
-    } else {
+    if (res.ok) {
       setRows(res.data);
+    } else {
+      toast.error({
+        title: "Echec de l’actualisation",
+        text: res.error ?? "Impossible de charger les demandes en attente.",
+      });
     }
-  }, [toastErr]);
+  }, [toast]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  const isLinePending = useMemo(
-    () => (id: string) => linePending.has(id),
-    [linePending]
+  // Étape 2: auto-refresh toutes les 25 s, pause si onglet en arrière-plan
+  useAutoRefresh(refresh, { intervalMs: 25_000 });
+
+  const handle = useCallback(
+    async (action: "accept" | "reject", bookingId: string) => {
+      // Optimistic UI: enlève la ligne immédiatement
+      const prev = rows;
+      const next = prev.filter((r) => r.booking_id !== bookingId);
+      setRows(next);
+
+      const res =
+        action === "accept"
+          ? await acceptBookingAction({ bookingId })
+          : await rejectBookingAction({ bookingId });
+
+      if (!res.ok) {
+        // rollback
+        setRows(prev);
+
+        // Messages dédiés selon code d’erreur
+        switch (res.code) {
+          case "NOT_OWNER":
+            toast.error({
+              title: "Action refusée",
+              text: "Vous n’êtes pas le conducteur de ce trajet.",
+            });
+            break;
+          case "BOOKING_NOT_FOUND":
+            toast.info({
+              title: "Réservation introuvable",
+              text: "Elle a peut‑être déjà été traitée.",
+            });
+            break;
+          case "BOOKING_NOT_PENDING":
+          case "ALREADY_ACCEPTED":
+          case "ALREADY_REJECTED":
+            toast.info({
+              title: "Déjà traité",
+              text: "Cette demande n’est plus en attente.",
+            });
+            break;
+          case "TRIP_FULL":
+            toast.error({
+              title: "Trajet complet",
+              text: "Plus de places disponibles sur ce trajet.",
+            });
+            break;
+          default:
+            toast.error({
+              title: "Erreur",
+              text: res.error ?? "Une erreur est survenue.",
+            });
+        }
+        return;
+      }
+
+      // Succès
+      if (action === "accept") {
+        toast.success({ title: "Acceptée", text: "La réservation est validée." });
+      } else {
+        toast.info({ title: "Refusée", text: "La réservation a été refusée." });
+      }
+
+      // Re-synchronise la liste (au cas où d’autres items ont changé)
+      startTransition(() => {
+        void refresh();
+      });
+    },
+    [rows, toast, refresh]
   );
 
-  function handle(action: "accept" | "reject", bookingId: string) {
-    const snapshot = rows;
-    const target = rows.find((r) => r.booking_id === bookingId);
-    if (!target) return;
+  const disabled = pending;
 
-    // Optimiste: retirer la ligne immédiatement
-    setRows((prev) => prev.filter((r) => r.booking_id !== bookingId));
-    setLinePending((s) => new Set(s).add(bookingId));
-
-    startTransition(async () => {
-      try {
-        // IMPORTANT: passer un objet { bookingId } aux actions
-        const res =
-          action === "accept"
-            ? ((await acceptBookingAction({ bookingId })) as ActionResult<unknown>)
-            : ((await rejectBookingAction({ bookingId })) as ActionResult<unknown>);
-
-        if (!res.ok) {
-          // rollback
-          setRows(snapshot);
-          toastErr(res.error ?? "Une erreur est survenue");
-          return;
-        }
-
-        toastOk(action === "accept" ? "Réservation acceptée" : "Réservation refusée");
-      } catch (e) {
-        setRows(snapshot);
-        toastErr("Erreur réseau. Réessaie.");
-      } finally {
-        setLinePending((s) => {
-          const n = new Set(s);
-          n.delete(bookingId);
-          return n;
-        });
-        // Option: re-sync pour refléter d'autres effets backend
-        // await refresh();
-      }
-    });
-  }
-
-  return (
-    <div>
-      <h2>Demandes en attente</h2>
-
-      {rows.length === 0 && !pending && <p>Aucune demande en attente.</p>}
-
-      <ul style={{ display: "grid", gap: 12, padding: 0, listStyle: "none" }}>
+  const content = useMemo(() => {
+    if (rows.length === 0) {
+      return (
+        <div style={{ color: "#64748b" }}>
+          Aucune demande en attente pour le moment.
+        </div>
+      );
+    }
+    return (
+      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
         {rows.map((r) => {
-          const disabled = isLinePending(r.booking_id);
           return (
-            <li
-              key={r.booking_id}
-              style={{
-                border: "1px solid #ddd",
-                borderRadius: 8,
-                padding: 12,
-                opacity: disabled ? 0.6 : 1,
-              }}
-              aria-busy={disabled}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+            <li key={r.booking_id} style={{ marginBottom: 10 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 10,
+                  padding: 12,
+                  background: "#fff",
+                }}
+              >
                 <div>
                   <div>
                     Trajet: {r.trip_id} — {fmt(r.trip_starts_at)}
@@ -156,6 +189,20 @@ export function DriverInbox() {
           );
         })}
       </ul>
+    );
+  }, [rows, disabled, handle]);
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <h2 style={{ margin: 0, fontSize: 18 }}>Demandes en attente</h2>
+        <button onClick={() => refresh()} disabled={pending}>
+          {pending ? "Actualisation..." : "Rafraîchir"}
+        </button>
+      </div>
+      {content}
     </div>
   );
 }
+
+export default DriverInbox;
