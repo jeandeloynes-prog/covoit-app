@@ -1,0 +1,35 @@
+name: Generate Prisma schema from DB
+
+on:
+  workflow_dispatch:
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Prisma CLI
+        run: npm i -g prisma
+
+      - name: Create prisma directory
+        run: mkdir -p prisma
+
+      - name: Introspect database -> prisma/schema.prisma
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: prisma db pull --schema=prisma/schema.prisma
+
+      - name: Commit schema.prisma
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "ci: add prisma/schema.prisma from DB introspection"
+          file_pattern: "prisma/schema.prisma"
