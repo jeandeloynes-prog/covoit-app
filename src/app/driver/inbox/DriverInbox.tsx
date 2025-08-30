@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { listPendingRequestsAction } from "@/server/actions/listPendingRequests";
 import { rejectBookingAction } from "@/server/actions/rejectBooking";
 import { acceptBookingAction } from "@/server/actions/acceptBooking";
+import { useToast } from "@/components/toast/ToastProvider";
 
 type Row = {
   booking_id: string;
@@ -14,16 +15,15 @@ type Row = {
   trip_starts_at: string | null;
 };
 
-// Format date/heure en français, sans dépendance
+// Format FR sans lib externe
 const fmt = (d: string | Date | null) =>
   d
-    ? new Date(d).toLocaleString("fr-FR", {
+    ? new Date(d).toLocaleString("fr-BE", {
         dateStyle: "short",
         timeStyle: "short",
       })
     : "—";
 
-// Optionnel: "il y a X …"
 const since = (d: string | Date) => {
   const diff = Date.now() - new Date(d).getTime();
   const sec = Math.max(0, Math.round(diff / 1000));
@@ -40,14 +40,13 @@ export function DriverInbox() {
   const [rows, setRows] = useState<Row[]>([]);
   const [pending, startTransition] = useTransition();
   const [linePending, setLinePending] = useState<Set<string>>(new Set());
-  const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const { success: toastOk, error: toastErr } = useToast();
 
   async function refresh() {
     const res = await listPendingRequestsAction();
     if (!res.ok) {
-      setMessage({ type: "err", text: res.error ?? "Erreur de chargement" });
+      toastErr(res.error ?? "Erreur de chargement");
     } else {
-      setMessage(null);
       setRows(res.data);
     }
   }
@@ -62,62 +61,47 @@ export function DriverInbox() {
   );
 
   function handle(action: "accept" | "reject", bookingId: string) {
-    // Optimistic: retirer la ligne immédiatement, mais garder un snapshot pour rollback
     const snapshot = rows;
     const target = rows.find((r) => r.booking_id === bookingId);
     if (!target) return;
 
+    // Optimiste: retirer la ligne
     setRows((prev) => prev.filter((r) => r.booking_id !== bookingId));
-    setLinePending((prev) => new Set(prev).add(bookingId));
+    setLinePending((s) => new Set(s).add(bookingId));
 
     startTransition(async () => {
-      const res =
-        action === "accept"
-          ? await acceptBookingAction({ bookingId })
-          : await rejectBookingAction({ bookingId });
+      try {
+        const res =
+          action === "accept"
+            ? await acceptBookingAction(bookingId)
+            : await rejectBookingAction(bookingId);
 
-      // Libère le statut pending de la ligne
-      setLinePending((prev) => {
-        const next = new Set(prev);
-        next.delete(bookingId);
-        return next;
-      });
+        if (!res.ok) {
+          // rollback
+          setRows(snapshot);
+          toastErr(res.error ?? "Une erreur est survenue");
+          return;
+        }
 
-      if (!res.ok) {
-        // Rollback
+        toastOk(action === "accept" ? "Réservation acceptée" : "Réservation refusée");
+      } catch (e) {
         setRows(snapshot);
-        setMessage({ type: "err", text: res.error ?? "Action échouée" });
-      } else {
-        setMessage({
-          type: "ok",
-          text: action === "accept" ? "Demande acceptée" : "Demande refusée",
+        toastErr("Erreur réseau. Réessaie.");
+      } finally {
+        setLinePending((s) => {
+          const n = new Set(s);
+          n.delete(bookingId);
+          return n;
         });
-        // Optionnel: resync pour refléter d’éventuels changements côté serveur
-        // Evite de flasher si pas nécessaire; décommente si tu veux un vrai resync:
+        // Option: re-sync pour refléter des changements backend
         // await refresh();
       }
-
-      // Efface le message après 3s
-      setTimeout(() => setMessage(null), 3000);
     });
   }
 
   return (
     <div>
       <h2>Demandes en attente</h2>
-
-      {message && (
-        <p
-          role="status"
-          aria-live="polite"
-          style={{
-            color: message.type === "ok" ? "seagreen" : "crimson",
-            marginTop: 4,
-          }}
-        >
-          {message.text}
-        </p>
-      )}
 
       {rows.length === 0 && !pending && <p>Aucune demande en attente.</p>}
 
