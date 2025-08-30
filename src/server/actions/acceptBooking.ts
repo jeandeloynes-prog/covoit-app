@@ -1,86 +1,142 @@
 "use server";
 
-import { prisma, getCurrentUserId } from "./_shared";
-import type { ActionResult, ActionErrorCode } from "./_shared";
+import type { Prisma } from "@prisma/client";
+import { prisma, getCurrentUserId, type ActionResult } from "./_shared";
+
+type AcceptBookingData = {
+  bookingId: string;
+  tripId: string;
+  seatsTaken: number;
+  seats: number;
+  status: "ACCEPTED";
+};
 
 /**
- * Accepte une réservation en s'assurant:
- * - que le driver est propriétaire du trip,
- * - que la réservation est "pending",
- * - qu'il reste assez de places,
- * - que tout se fait de manière atomique.
+ * Accepte une réservation si:
+ * - la réservation existe et est en statut PENDING
+ * - l'utilisateur courant est le propriétaire (driver) du trajet
+ * - il reste des places
+ * La logique est protégée contre les races via updateMany/count.
  */
-export async function acceptBookingAction(input: {
-  bookingId: string;
-}): Promise<ActionResult<{ bookingId: string }>> {
-  const { bookingId } = input;
+export async function acceptBooking(
+  bookingId: string
+): Promise<ActionResult<AcceptBookingData>> {
+  const userId = getCurrentUserId();
+  if (!userId) {
+    return { ok: false, error: "Not authenticated.", code: "UNKNOWN" };
+  }
 
   try {
-    const userId = await getCurrentUserId();
-    if (!userId) {
-      return { ok: false, error: "Utilisateur non authentifié.", code: "NOT_OWNER" };
-    }
-
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // 1) Charger la réservation minimale
       const booking = await tx.booking.findUnique({
         where: { id: bookingId },
-        select: {
-          id: true,
-          status: true,
-          seats: true,
-          tripId: true,
-          trip: { select: { id: true, driverId: true, seatsAvailable: true } },
-        },
+        select: { id: true, status: true, tripId: true },
       });
 
       if (!booking) {
-        return fail("BOOKING_NOT_FOUND", "Réservation introuvable.");
+        return { kind: "ERR" as const, code: "BOOKING_NOT_FOUND" as const };
       }
 
-      if (booking.trip?.driverId !== userId) {
-        return fail("NOT_OWNER", "Vous n’êtes pas le conducteur de ce trajet.");
+      if (booking.status === "ACCEPTED") {
+        return { kind: "ERR" as const, code: "ALREADY_ACCEPTED" as const };
+      }
+      if (booking.status === "REJECTED") {
+        return { kind: "ERR" as const, code: "ALREADY_REJECTED" as const };
+      }
+      if (booking.status !== "PENDING") {
+        return { kind: "ERR" as const, code: "BOOKING_NOT_PENDING" as const };
       }
 
-      if (booking.status === "accepted") {
-        return fail("ALREADY_ACCEPTED", "Réservation déjà acceptée.");
-      }
-      if (booking.status === "rejected") {
-        return fail("ALREADY_REJECTED", "Réservation déjà refusée.");
-      }
-      if (booking.status !== "pending") {
-        return fail("BOOKING_NOT_PENDING", "Réservation non en attente.");
-      }
-
-      const seatsLeft = booking.trip?.seatsAvailable ?? 0;
-      if (seatsLeft < booking.seats) {
-        return fail("TRIP_FULL", "Plus de places disponibles.");
-      }
-
-      // Mise à jour atomique: décrémente les places et passe la réservation à "accepted"
-      const updatedTrip = await tx.trip.update({
-        where: { id: booking.tripId, seatsAvailable: seatsLeft },
-        data: { seatsAvailable: { decrement: booking.seats } },
+      // 2) Charger le trip et vérifier la propriété
+      const trip = await tx.trip.findUnique({
+        where: { id: booking.tripId },
+        select: {
+          id: true,
+          driverId: true,
+          seats: true,
+          seatsTaken: true,
+        },
       });
 
-      if (!updatedTrip) {
-        return fail("CONCURRENCY_CONFLICT", "Conflit de concurrence.");
+      if (!trip) {
+        // Cas rare: data corrompue
+        return { kind: "ERR" as const, code: "UNKNOWN" as const };
       }
 
-      const updatedBooking = await tx.booking.update({
-        where: { id: bookingId, status: "pending" },
-        data: { status: "accepted" },
+      if (trip.driverId !== userId) {
+        return { kind: "ERR" as const, code: "NOT_OWNER" as const };
+      }
+
+      // 3) Vérifier la capacité et incrémenter de manière atomique
+      if (trip.seatsTaken >= trip.seats) {
+        return { kind: "ERR" as const, code: "TRIP_FULL" as const };
+      }
+
+      // Incrément protégé contre les races
+      const tripUpdate = await tx.trip.updateMany({
+        where: {
+          id: trip.id,
+          // encore dispo au moment de l'incrément
+          seatsTaken: { lt: trip.seats },
+        },
+        data: { seatsTaken: { increment: 1 } },
       });
 
-      return { ok: true as const, data: { bookingId: updatedBooking.id } };
+      if (tripUpdate.count === 0) {
+        // Quelqu’un a pris la dernière place juste avant nous
+        return { kind: "ERR" as const, code: "CONCURRENCY_CONFLICT" as const };
+      }
+
+      // 4) Passer la réservation à ACCEPTED, avec garde sur le statut
+      const bookingUpdate = await tx.booking.updateMany({
+        where: { id: booking.id, status: "PENDING" },
+        data: { status: "ACCEPTED", acceptedAt: new Date() },
+      });
+
+      if (bookingUpdate.count === 0) {
+        // Le statut a changé pendant la transaction
+        // (ex: déjà accepté/rejeté ailleurs)
+        // On annule l’incrément précédemment fait pour rester consistant
+        await tx.trip.update({
+          where: { id: trip.id },
+          data: { seatsTaken: { decrement: 1 } },
+        });
+        return { kind: "ERR" as const, code: "CONCURRENCY_CONFLICT" as const };
+      }
+
+      // 5) Retourner l’état final
+      const latestTrip = await tx.trip.findUnique({
+        where: { id: trip.id },
+        select: { id: true, seats: true, seatsTaken: true },
+      });
+
+      if (!latestTrip) {
+        // Très improbable
+        return { kind: "ERR" as const, code: "UNKNOWN" as const };
+      }
+
+      return {
+        kind: "OK" as const,
+        data: {
+          bookingId: booking.id,
+          tripId: latestTrip.id,
+          seatsTaken: latestTrip.seatsTaken,
+          seats: latestTrip.seats,
+          status: "ACCEPTED" as const,
+        },
+      };
     });
 
-    return result;
+    if (result.kind === "ERR") {
+      return { ok: false, error: result.code, code: result.code };
+    }
+    return { ok: true, data: result.data };
   } catch (e) {
-    console.error(e);
-    return { ok: false, error: "Erreur serveur.", code: "UNKNOWN" };
+    // Log en dev si besoin
+    // console.error(e);
+    return { ok: false, error: "Unexpected error.", code: "UNKNOWN" };
   }
 }
 
-function fail(code: ActionErrorCode, error: string): ActionResult<never> {
-  return { ok: false, error, code };
-}
+export default acceptBooking;
