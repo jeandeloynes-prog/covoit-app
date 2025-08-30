@@ -1,27 +1,26 @@
-import fetch from "node-fetch";
-
-/**
- * Appelle l'API Mammouth.
- * - MAMMOUTH_API_KEY : clé privée fournie par mammouth
- * - MAMMOUTH_API_URL : endpoint configurable (ex: https://api.mammouth.ai/v1/generate)
- *
- * Retourne soit une chaîne soit un objet JSON suivant la réponse de l'API.
- */
-export async function callMammouth(instruction) {
+// utils/mammouth.js
+// Utilise fetch natif (Node 20+)
+async function callMammouth(instruction) {
   const url = process.env.MAMMOUTH_API_URL;
+  const key = process.env.MAMMOUTH_API_KEY;
   if (!url) throw new Error("MAMMOUTH_API_URL not configured");
+  if (!key) throw new Error("MAMMOUTH_API_KEY not configured");
+
+  // Body générique — adaptez selon la doc Mammouth si nécessaire
+  const body = {
+    prompt: instruction,
+    max_tokens: 1200
+  };
 
   const resp = await fetch(url, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${process.env.MAMMOUTH_API_KEY}`,
-      "Content-Type": "application/json"
+      "Authorization": `Bearer ${key}`,
+      "Content-Type": "application/json",
+      "Accept": "application/json"
     },
-    body: JSON.stringify({
-      // Corps générique — adaptez selon la doc Mammouth
-      prompt: instruction,
-      max_tokens: 1200
-    })
+    body: JSON.stringify(body),
+    // timeout non natif ; Vercel / Node gère la durée via maxDuration
   });
 
   if (!resp.ok) {
@@ -29,11 +28,13 @@ export async function callMammouth(instruction) {
     throw new Error(`Mammouth API error: ${resp.status} - ${t}`);
   }
 
-  // essaie JSON puis texte
   const text = await resp.text();
   try {
     return JSON.parse(text);
   } catch (e) {
+    // si la réponse n'est pas JSON, renvoyer le texte brut
     return text;
   }
 }
+
+module.exports = { callMammouth };
