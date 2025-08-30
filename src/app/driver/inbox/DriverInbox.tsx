@@ -3,9 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { listPendingRequestsAction } from "@/server/actions/listPendingRequests";
 import { rejectBookingAction } from "@/server/actions/rejectBooking";
-import { acceptBookingAction } from "@/server/actions/acceptBooking"; // déjà fourni
-import { format } from "date-fns";
-import { fr } from "date-fns/locale";
+import { acceptBookingAction } from "@/server/actions/acceptBooking";
 
 type Row = {
   booking_id: string;
@@ -14,6 +12,28 @@ type Row = {
   passenger_id: string;
   trip_id: string;
   trip_starts_at: string | null;
+};
+
+// Format date/heure en français, sans dépendance
+const fmt = (d: string | Date | null) =>
+  d
+    ? new Date(d).toLocaleString("fr-FR", {
+        dateStyle: "short",
+        timeStyle: "short",
+      })
+    : "—";
+
+// Optionnel: "il y a X …"
+const since = (d: string | Date) => {
+  const diff = Date.now() - new Date(d).getTime();
+  const sec = Math.max(0, Math.round(diff / 1000));
+  if (sec < 60) return `il y a ${sec}s`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `il y a ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `il y a ${h} h`;
+  const j = Math.round(h / 24);
+  return `il y a ${j} j`;
 };
 
 export function DriverInbox() {
@@ -65,29 +85,29 @@ export function DriverInbox() {
               padding: 12,
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
               <div>
                 <div>
-                  Trajet: {r.trip_id}{" "}
-                  {r.trip_starts_at &&
-                    `— ${format(new Date(r.trip_starts_at), "Pp", { locale: fr })}`}
+                  Trajet: {r.trip_id} — {fmt(r.trip_starts_at)}
                 </div>
                 <div>Passager: {r.passenger_id}</div>
                 <div>Places demandées: {r.seats}</div>
-                <div>Créée: {format(new Date(r.created_at), "Pp", { locale: fr })}</div>
+                <div>
+                  Créée: {fmt(r.created_at)} <span style={{ color: "#666" }}>({since(r.created_at)})</span>
+                </div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <button
                   disabled={pending}
                   onClick={() => handle("accept", r.booking_id)}
                 >
-                  Accepter
+                  {pending ? "..." : "Accepter"}
                 </button>
                 <button
                   disabled={pending}
                   onClick={() => handle("reject", r.booking_id)}
                 >
-                  Refuser
+                  {pending ? "..." : "Refuser"}
                 </button>
               </div>
             </div>
