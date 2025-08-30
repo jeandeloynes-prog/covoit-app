@@ -3,6 +3,16 @@
 import { prisma } from "./_shared";
 import type { ActionResult } from "./_shared";
 
+// Types locaux correspondant exactement au select ci‑dessous
+type PendingRequestRow = {
+  id: string;
+  createdAt: Date | string;
+  seats: number;
+  passengerId: string;
+  tripId: string;
+  trip: { startsAt: Date | string | null } | null;
+};
+
 /**
  * Retourne les réservations en attente (status = "pending") pour le driver courant.
  */
@@ -19,11 +29,10 @@ export async function listPendingRequestsAction(): Promise<
   >
 > {
   try {
-    // À adapter à ton auth (driverId courant)
-    // Si tu utilises getCurrentUserId, importe‑le et filtre sur trip.driverId
+    // TODO: filtrer par driver courant si nécessaire (ex: where: { status: "pending", trip: { driverId: currentDriverId } })
     const rows = await prisma.booking.findMany({
       where: { status: "pending" },
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: "asc" }, // ou "desc" selon ton besoin
       select: {
         id: true,
         createdAt: true,
@@ -36,13 +45,15 @@ export async function listPendingRequestsAction(): Promise<
 
     return {
       ok: true,
-      data: rows.map((r) => ({
+      data: (rows as PendingRequestRow[]).map((r) => ({
         booking_id: r.id,
-        created_at: r.createdAt.toISOString(),
+        created_at: new Date(r.createdAt).toISOString(),
         seats: r.seats,
         passenger_id: r.passengerId,
         trip_id: r.tripId,
-        trip_starts_at: r.trip?.startsAt?.toISOString() ?? null,
+        trip_starts_at: r.trip?.startsAt
+          ? new Date(r.trip.startsAt).toISOString()
+          : null,
       })),
     };
   } catch (e) {
