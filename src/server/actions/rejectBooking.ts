@@ -4,13 +4,23 @@ import { prisma } from "./_shared";
 import type { ActionResult } from "./_shared";
 import type { Prisma } from "@prisma/client";
 
+// On accepte deux formes d'input pour éviter de modifier l'UI:
+// - { bookingId: string, reason?: string | null }
+// - { booking_id: string, reason?: string | null }
+type RejectInputCamel = { bookingId: string; reason?: string | null };
+type RejectInputSnake = { booking_id: string; reason?: string | null };
+type RejectInput = RejectInputCamel | RejectInputSnake;
+
+function getBookingId(input: RejectInput): string {
+  return "bookingId" in input ? input.bookingId : input.booking_id;
+}
+
 /**
  * Rejette une réservation et remet les sièges à disposition.
  */
-export async function rejectBookingAction(input: {
-  booking_id: string;
-  reason?: string | null;
-}): Promise<
+export async function rejectBookingAction(
+  input: RejectInput
+): Promise<
   ActionResult<{
     booking_id: string;
     status: "rejected";
@@ -18,7 +28,8 @@ export async function rejectBookingAction(input: {
   }>
 > {
   try {
-    const { booking_id, reason } = input;
+    const booking_id = getBookingId(input);
+    const reason = "reason" in input ? input.reason ?? null : null;
 
     const result = await prisma.$transaction(
       async (tx: Prisma.TransactionClient) => {
@@ -39,7 +50,7 @@ export async function rejectBookingAction(input: {
           throw new Error("BOOKING_NOT_PENDING");
         }
 
-        // Exemple: libérer des sièges sur le trip (décommente/adapte selon ton schéma)
+        // Exemple: libérer des sièges (à adapter selon ton schéma)
         // await tx.trip.update({
         //   where: { id: booking.tripId },
         //   data: { seatsAvailable: { increment: booking.seats } },
@@ -49,13 +60,10 @@ export async function rejectBookingAction(input: {
           where: { id: booking.id },
           data: {
             status: "rejected",
-            // reason: reason ?? null, // si tu as un champ 'reason'
-            // rejectedAt: new Date(),  // si tu as un champ 'rejectedAt'
+            // reason: reason, // décommente si tu as ce champ
+            // rejectedAt: new Date(), // décommente si champ dédié
           },
-          select: {
-            id: true,
-            updatedAt: true,
-          },
+          select: { id: true, updatedAt: true },
         });
 
         return {
