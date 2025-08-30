@@ -5,11 +5,15 @@ import { cookies } from "next/headers";
 
 /**
  * À adapter à ton auth. Ici on suppose un cookie "uid".
+ * Note: cookies() est synchrone en Server Actions/Route Handlers.
  */
-export async function getCurrentUserId(): Promise<string | null> {
-  const uid = (await cookies()).get("uid")?.value ?? null;
+export function getCurrentUserId(): string | null {
+  const uid = cookies().get("uid")?.value ?? null;
   return uid;
 }
+
+// Alias pour compatibilité si certains imports attendent getUserId
+export const getUserId = getCurrentUserId;
 
 export type ActionErrorCode =
   | "BOOKING_NOT_FOUND"
@@ -25,4 +29,5 @@ export type ActionResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string; code?: ActionErrorCode };
 
+// Réexport pratique
 export { prisma };
