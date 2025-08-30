@@ -1,36 +1,48 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/utils/supabase/client';
+import { supabase } from '@/lib/supabaseClient'; // même import que ta home
 
-export default function AuthCallbackPage() {
-  const [message, setMessage] = useState<string>('Connexion en cours…');
+export default function AuthCallback() {
   const router = useRouter();
-  const supabase = createClient();
 
   useEffect(() => {
     const run = async () => {
-      const code = new URLSearchParams(window.location.search).get('code');
-
-      if (!code) {
-        setMessage('Code de connexion manquant ou lien invalide.');
+      // 1) Nouveau flux: ?code=...
+      const url = new URL(window.location.href);
+      const code = url.searchParams.get('code');
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        // nettoie l’URL
+        url.searchParams.delete('code');
+        window.history.replaceState({}, '', url.toString());
+        if (error) console.error('exchangeCodeForSession:', error);
+        router.replace('/'); // vers ta page d’accueil ou protégée
         return;
       }
 
-      const { error } = await supabase.auth.exchangeCodeForSession(code);
-      if (error) {
-        console.error(error);
-        setMessage('Lien invalide ou expiré.');
-        return;
+      // 2) Flux hash (ton lien actuel): #access_token=...&refresh_token=...
+      if (window.location.hash) {
+        const params = new URLSearchParams(window.location.hash.slice(1));
+        const access_token = params.get('access_token');
+        const refresh_token = params.get('refresh_token');
+        if (access_token && refresh_token) {
+          const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+          if (error) console.error('setSession:', error);
+          // enlève le hash et redirige
+          window.history.replaceState({}, '', '/');
+          router.replace('/');
+          return;
+        }
       }
 
-      // Succès: redirige vers la page protégée (à adapter)
+      // Aucun code/token -> retour simple
       router.replace('/');
     };
 
     run();
-  }, [router, supabase]);
+  }, [router]);
 
-  return <p>{message}</p>;
+  return <p>Connexion en cours…</p>;
 }
