@@ -1,5 +1,5 @@
 'use client';
-import { supabase } from "../../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";
 import { useEffect, useState } from 'react';
 
 type Group = { id: string; name: string; created_at: string };
