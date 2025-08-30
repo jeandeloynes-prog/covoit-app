@@ -1,5 +1,5 @@
 'use client';
-import { supabase } from "../../../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";
 import { useEffect, useState } from 'react';
 
 type Message = { id: number; content: string; created_at: string; user_id: string };
