@@ -1,9 +1,11 @@
+import MagicLinkForm from '@/components/auth/MagicLinkForm';
+
+export const metadata = { title: 'Login' };
+
 export default function LoginPage() {
   return (
-    <main>
-      <h1>Se connecter</h1>
-      {/* @ts-expect-error Server/Client boundary if needed */}
-      {/* Le composant est client, la page peut rester server */}
+    <main className="mx-auto max-w-md p-6">
+      <h1 className="text-2xl font-semibold mb-4">Connexion</h1>
       <MagicLinkForm />
     </main>
   );
