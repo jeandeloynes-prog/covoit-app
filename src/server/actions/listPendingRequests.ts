@@ -3,7 +3,7 @@
 import { prisma } from "./_shared";
 import type { ActionResult } from "./_shared";
 
-// Types locaux correspondant exactement au select ci‑dessous
+// Types locaux correspondant exactement au select
 type PendingRequestRow = {
   id: string;
   createdAt: Date | string;
@@ -29,7 +29,7 @@ export async function listPendingRequestsAction(): Promise<
   >
 > {
   try {
-    // TODO: filtrer par driver courant si nécessaire (ex: where: { status: "pending", trip: { driverId: currentDriverId } })
+    // TODO: filtrer par driver courant si nécessaire
     const rows = await prisma.booking.findMany({
       where: { status: "pending" },
       orderBy: { createdAt: "asc" }, // ou "desc" selon ton besoin
