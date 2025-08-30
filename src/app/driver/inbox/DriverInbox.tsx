@@ -44,24 +44,27 @@ export function DriverInbox() {
   const [rows, setRows] = useState<Row[]>([]);
   const [pending, startTransition] = useTransition();
 
-  // Récupère le contexte toast (API flexible)
+  // Contexte toast (API flexible)
   const toastCtx = useToast() as any;
 
-  // Adaptateur: supporte plusieurs variantes (toast.success | success | push)
-  const notify = {
-    success: (p: { title?: string; text: string }) =>
-      toastCtx?.toast?.success?.(p) ??
-      toastCtx?.success?.(p) ??
-      toastCtx?.push?.({ kind: "ok", ...p }),
-    error: (p: { title?: string; text: string }) =>
-      toastCtx?.toast?.error?.(p) ??
-      toastCtx?.error?.(p) ??
-      toastCtx?.push?.({ kind: "err", ...p }),
-    info: (p: { title?: string; text: string }) =>
-      toastCtx?.toast?.info?.(p) ??
-      toastCtx?.info?.(p) ??
-      toastCtx?.push?.({ kind: "info", ...p }),
-  };
+  // notify mémoïsé pour éviter les warnings react-hooks/exhaustive-deps
+  const notify = useMemo(
+    () => ({
+      success: (p: { title?: string; text: string }) =>
+        toastCtx?.toast?.success?.(p) ??
+        toastCtx?.success?.(p) ??
+        toastCtx?.push?.({ kind: "ok", ...p }),
+      error: (p: { title?: string; text: string }) =>
+        toastCtx?.toast?.error?.(p) ??
+        toastCtx?.error?.(p) ??
+        toastCtx?.push?.({ kind: "err", ...p }),
+      info: (p: { title?: string; text: string }) =>
+        toastCtx?.toast?.info?.(p) ??
+        toastCtx?.info?.(p) ??
+        toastCtx?.push?.({ kind: "info", ...p }),
+    }),
+    [toastCtx]
+  );
 
   const refresh = useCallback(async () => {
     const res = (await listPendingRequestsAction()) as ActionResult<Row[]>;
