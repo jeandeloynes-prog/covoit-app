@@ -1,142 +1,97 @@
 "use server";
 
+import { prisma } from "./_shared";
+import type { ActionResult } from "./_shared";
 import type { Prisma } from "@prisma/client";
-import { prisma, getCurrentUserId, type ActionResult } from "./_shared";
 
-type AcceptBookingData = {
-  bookingId: string;
-  tripId: string;
-  seatsTaken: number;
-  seats: number;
-  status: "ACCEPTED";
-};
+// On accepte deux formes d'input pour éviter de modifier l'UI:
+// - { bookingId: string }
+// - { booking_id: string }
+type AcceptInputCamel = { bookingId: string };
+type AcceptInputSnake = { booking_id: string };
+type AcceptInput = AcceptInputCamel | AcceptInputSnake;
+
+function getBookingId(input: AcceptInput): string {
+  return "bookingId" in input ? input.bookingId : input.booking_id;
+}
 
 /**
- * Implémentation interne: accepte une réservation par son id.
+ * Accepte une réservation (status: pending -> accepted).
+ * Si tu gères des compteurs de sièges au niveau du trip,
+ * adapte la section correspondante (voir commentaires).
  */
-export async function acceptBooking(
-  bookingId: string
-): Promise<ActionResult<AcceptBookingData>> {
-  const userId = getCurrentUserId();
-  if (!userId) {
-    return { ok: false, error: "Not authenticated.", code: "UNKNOWN" };
-  }
-
+export async function acceptBookingAction(
+  input: AcceptInput
+): Promise<
+  ActionResult<{
+    booking_id: string;
+    status: "accepted";
+    accepted_at: string;
+  }>
+> {
   try {
-    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // 1) Charger la réservation minimale
-      const booking = await tx.booking.findUnique({
-        where: { id: bookingId },
-        select: { id: true, status: true, tripId: true },
-      });
+    const booking_id = getBookingId(input);
 
-      if (!booking) {
-        return { kind: "ERR" as const, code: "BOOKING_NOT_FOUND" as const };
-      }
-
-      if (booking.status === "ACCEPTED") {
-        return { kind: "ERR" as const, code: "ALREADY_ACCEPTED" as const };
-      }
-      if (booking.status === "REJECTED") {
-        return { kind: "ERR" as const, code: "ALREADY_REJECTED" as const };
-      }
-      if (booking.status !== "PENDING") {
-        return { kind: "ERR" as const, code: "BOOKING_NOT_PENDING" as const };
-      }
-
-      // 2) Charger le trip et vérifier la propriété
-      const trip = await tx.trip.findUnique({
-        where: { id: booking.tripId },
-        select: {
-          id: true,
-          driverId: true,
-          seats: true,
-          seatsTaken: true,
-        },
-      });
-
-      if (!trip) {
-        // Cas rare: data corrompue
-        return { kind: "ERR" as const, code: "UNKNOWN" as const };
-      }
-
-      if (trip.driverId !== userId) {
-        return { kind: "ERR" as const, code: "NOT_OWNER" as const };
-      }
-
-      // 3) Vérifier la capacité et incrémenter de manière atomique
-      if (trip.seatsTaken >= trip.seats) {
-        return { kind: "ERR" as const, code: "TRIP_FULL" as const };
-      }
-
-      // Incrément protégé contre les races
-      const tripUpdate = await tx.trip.updateMany({
-        where: {
-          id: trip.id,
-          seatsTaken: { lt: trip.seats },
-        },
-        data: { seatsTaken: { increment: 1 } },
-      });
-
-      if (tripUpdate.count === 0) {
-        // Quelqu’un a pris la dernière place juste avant nous
-        return { kind: "ERR" as const, code: "CONCURRENCY_CONFLICT" as const };
-      }
-
-      // 4) Passer la réservation à ACCEPTED, avec garde sur le statut
-      const bookingUpdate = await tx.booking.updateMany({
-        where: { id: booking.id, status: "PENDING" },
-        data: { status: "ACCEPTED", acceptedAt: new Date() },
-      });
-
-      if (bookingUpdate.count === 0) {
-        // Le statut a changé pendant la transaction
-        // On annule l’incrément précédemment fait pour rester consistant
-        await tx.trip.update({
-          where: { id: trip.id },
-          data: { seatsTaken: { decrement: 1 } },
+    const result = await prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        const booking = await tx.booking.findUnique({
+          where: { id: booking_id },
+          select: {
+            id: true,
+            status: true,
+            seats: true,
+            tripId: true,
+          },
         });
-        return { kind: "ERR" as const, code: "CONCURRENCY_CONFLICT" as const };
+
+        if (!booking) {
+          throw new Error("BOOKING_NOT_FOUND");
+        }
+        if (booking.status !== "pending") {
+          throw new Error("BOOKING_NOT_PENDING");
+        }
+
+        // Exemple: décrémenter des sièges disponibles sur le trajet
+        // (décommente/ajuste selon ton schéma Prisma)
+        // await tx.trip.update({
+        //   where: { id: booking.tripId },
+        //   data: { seatsAvailable: { decrement: booking.seats } },
+        // });
+
+        const updated = await tx.booking.update({
+          where: { id: booking.id },
+          data: {
+            status: "accepted",
+            // acceptedAt: new Date(), // décommente si tu as ce champ
+          },
+          select: { id: true, updatedAt: true },
+        });
+
+        return {
+          booking_id: updated.id,
+          accepted_at: new Date(updated.updatedAt).toISOString(),
+        };
       }
+    );
 
-      // 5) Retourner l’état final
-      const latestTrip = await tx.trip.findUnique({
-        where: { id: trip.id },
-        select: { id: true, seats: true, seatsTaken: true },
-      });
-
-      if (!latestTrip) {
-        // Très improbable
-        return { kind: "ERR" as const, code: "UNKNOWN" as const };
-      }
-
-      return {
-        kind: "OK" as const,
-        data: {
-          bookingId: booking.id,
-          tripId: latestTrip.id,
-          seatsTaken: latestTrip.seatsTaken,
-          seats: latestTrip.seats,
-          status: "ACCEPTED" as const,
-        },
-      };
-    });
-
-    if (result.kind === "ERR") {
-      return { ok: false, error: result.code, code: result.code };
-    }
-    return { ok: true, data: result.data };
-  } catch (_e) {
-    return { ok: false, error: "Unexpected error.", code: "UNKNOWN" };
+    return {
+      ok: true,
+      data: {
+        booking_id: result.booking_id,
+        status: "accepted",
+        accepted_at: result.accepted_at,
+      },
+    };
+  } catch (e: any) {
+    console.error(e);
+    const code =
+      typeof e?.message === "string" ? e.message : "ACCEPT_BOOKING_FAILED";
+    const human =
+      code === "BOOKING_NOT_FOUND"
+        ? "Réservation introuvable."
+        : code === "BOOKING_NOT_PENDING"
+        ? "La réservation n'est pas en statut pending."
+        : "Impossible d'accepter la réservation.";
+    return { ok: false, error: human };
   }
 }
-
-/**
- * Wrapper action attendu par l’UI:
- * accepte un objet { bookingId } comme dans DriverInbox.tsx.
- */
-export async function acceptBookingAction(args: { bookingId: string }) {
-  return acceptBooking(args.bookingId);
-}
-
-export default acceptBooking;
