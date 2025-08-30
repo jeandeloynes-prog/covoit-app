@@ -1,4 +1,4 @@
-import type { Database } from "@/lib/supabase/types";
-// puis:
-let browserClient: SupabaseClient<Database> | null = null;
-browserClient = createBrowserClient<Database>(supabaseUrl, supabaseAnonKey);
+// src/lib/supabase/types.ts
+// Placeholder provisoire: remplace par les types générés Supabase quand prêts.
+export type Database = any;
+// Quand tu auras généré: `export type { Database } from "./database.types";`
