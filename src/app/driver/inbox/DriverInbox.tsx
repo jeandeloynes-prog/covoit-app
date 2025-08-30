@@ -43,30 +43,48 @@ const since = (d: string | Date) => {
 export function DriverInbox() {
   const [rows, setRows] = useState<Row[]>([]);
   const [pending, startTransition] = useTransition();
-  const { toast } = useToast();
+
+  // Récupère le contexte toast (API flexible)
+  const toastCtx = useToast() as any;
+
+  // Adaptateur: supporte plusieurs variantes (toast.success | success | push)
+  const notify = {
+    success: (p: { title?: string; text: string }) =>
+      toastCtx?.toast?.success?.(p) ??
+      toastCtx?.success?.(p) ??
+      toastCtx?.push?.({ kind: "ok", ...p }),
+    error: (p: { title?: string; text: string }) =>
+      toastCtx?.toast?.error?.(p) ??
+      toastCtx?.error?.(p) ??
+      toastCtx?.push?.({ kind: "err", ...p }),
+    info: (p: { title?: string; text: string }) =>
+      toastCtx?.toast?.info?.(p) ??
+      toastCtx?.info?.(p) ??
+      toastCtx?.push?.({ kind: "info", ...p }),
+  };
 
   const refresh = useCallback(async () => {
     const res = (await listPendingRequestsAction()) as ActionResult<Row[]>;
     if (res.ok) {
       setRows(res.data);
     } else {
-      toast.error({
-        title: "Echec de l’actualisation",
+      notify.error({
+        title: "Échec de l’actualisation",
         text: res.error ?? "Impossible de charger les demandes en attente.",
       });
     }
-  }, [toast]);
+  }, [notify]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  // Étape 2: auto-refresh toutes les 25 s, pause si onglet en arrière-plan
+  // Auto-refresh toutes les 25 s, pause si onglet en arrière‑plan
   useAutoRefresh(refresh, { intervalMs: 25_000 });
 
   const handle = useCallback(
     async (action: "accept" | "reject", bookingId: string) => {
-      // Optimistic UI: enlève la ligne immédiatement
+      // Optimistic UI
       const prev = rows;
       const next = prev.filter((r) => r.booking_id !== bookingId);
       setRows(next);
@@ -80,16 +98,15 @@ export function DriverInbox() {
         // rollback
         setRows(prev);
 
-        // Messages dédiés selon code d’erreur
         switch (res.code) {
           case "NOT_OWNER":
-            toast.error({
+            notify.error({
               title: "Action refusée",
               text: "Vous n’êtes pas le conducteur de ce trajet.",
             });
             break;
           case "BOOKING_NOT_FOUND":
-            toast.info({
+            notify.info({
               title: "Réservation introuvable",
               text: "Elle a peut‑être déjà été traitée.",
             });
@@ -97,19 +114,19 @@ export function DriverInbox() {
           case "BOOKING_NOT_PENDING":
           case "ALREADY_ACCEPTED":
           case "ALREADY_REJECTED":
-            toast.info({
+            notify.info({
               title: "Déjà traité",
               text: "Cette demande n’est plus en attente.",
             });
             break;
           case "TRIP_FULL":
-            toast.error({
+            notify.error({
               title: "Trajet complet",
               text: "Plus de places disponibles sur ce trajet.",
             });
             break;
           default:
-            toast.error({
+            notify.error({
               title: "Erreur",
               text: res.error ?? "Une erreur est survenue.",
             });
@@ -119,17 +136,17 @@ export function DriverInbox() {
 
       // Succès
       if (action === "accept") {
-        toast.success({ title: "Acceptée", text: "La réservation est validée." });
+        notify.success({ title: "Acceptée", text: "La réservation est validée." });
       } else {
-        toast.info({ title: "Refusée", text: "La réservation a été refusée." });
+        notify.info({ title: "Refusée", text: "La réservation a été refusée." });
       }
 
-      // Re-synchronise la liste (au cas où d’autres items ont changé)
+      // Re-synchronise la liste
       startTransition(() => {
         void refresh();
       });
     },
-    [rows, toast, refresh]
+    [rows, notify, refresh]
   );
 
   const disabled = pending;
