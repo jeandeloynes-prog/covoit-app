@@ -26,7 +26,6 @@ export function useAutoRefresh(run: Fn, opts?: { intervalMs?: number }) {
 
     const tick = async () => {
       if (stopped || document.hidden) {
-        // quand on repasse visible, on relancera
         return;
       }
       abortRef.current?.abort();
@@ -34,7 +33,6 @@ export function useAutoRefresh(run: Fn, opts?: { intervalMs?: number }) {
       try {
         await run();
       } finally {
-        // petit jitter pour éviter l’alignement des clients
         const jitter = 2_000 * Math.random();
         schedule(interval + jitter);
       }
@@ -43,7 +41,7 @@ export function useAutoRefresh(run: Fn, opts?: { intervalMs?: number }) {
     const onVisibility = () => {
       if (!document.hidden) {
         // focus: relance immédiate
-        void run().finally(() => schedule(interval));
+        void Promise.resolve(run()).finally(() => schedule(interval));
       } else {
         // pause
         clearTimer();
@@ -55,7 +53,7 @@ export function useAutoRefresh(run: Fn, opts?: { intervalMs?: number }) {
     window.addEventListener("focus", onVisibility);
 
     // premier passage
-    void run().finally(() => schedule(interval));
+    void Promise.resolve(run()).finally(() => schedule(interval));
 
     return () => {
       stopped = true;
