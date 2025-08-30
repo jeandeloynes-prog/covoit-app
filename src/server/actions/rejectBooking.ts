@@ -1,70 +1,88 @@
 "use server";
 
-import { prisma, getCurrentUserId } from "./_shared";
-import type { ActionResult, ActionErrorCode } from "./_shared";
+import { prisma } from "./_shared";
+import type { ActionResult } from "./_shared";
+import type { Prisma } from "@prisma/client";
 
 /**
- * Refuse une réservation en s'assurant:
- * - ownership du driver,
- * - statut "pending",
- * - idempotence (déjà refusée/acceptée renvoie un code clair).
+ * Rejette une réservation et remet les sièges à disposition.
  */
 export async function rejectBookingAction(input: {
-  bookingId: string;
-}): Promise<ActionResult<{ bookingId: string }>> {
-  const { bookingId } = input;
-
+  booking_id: string;
+  reason?: string | null;
+}): Promise<
+  ActionResult<{
+    booking_id: string;
+    status: "rejected";
+    rejected_at: string;
+  }>
+> {
   try {
-    const userId = await getCurrentUserId();
-    if (!userId) {
-      return { ok: false, error: "Utilisateur non authentifié.", code: "NOT_OWNER" };
-    }
+    const { booking_id, reason } = input;
 
-    const result = await prisma.$transaction(async (tx) => {
-      const booking = await tx.booking.findUnique({
-        where: { id: bookingId },
-        select: {
-          id: true,
-          status: true,
-          seats: true,
-          tripId: true,
-          trip: { select: { id: true, driverId: true } },
-        },
-      });
+    const result = await prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        const booking = await tx.booking.findUnique({
+          where: { id: booking_id },
+          select: {
+            id: true,
+            status: true,
+            seats: true,
+            tripId: true,
+          },
+        });
 
-      if (!booking) {
-        return fail("BOOKING_NOT_FOUND", "Réservation introuvable.");
+        if (!booking) {
+          throw new Error("BOOKING_NOT_FOUND");
+        }
+        if (booking.status !== "pending") {
+          throw new Error("BOOKING_NOT_PENDING");
+        }
+
+        // Exemple: libérer des sièges sur le trip (décommente/adapte selon ton schéma)
+        // await tx.trip.update({
+        //   where: { id: booking.tripId },
+        //   data: { seatsAvailable: { increment: booking.seats } },
+        // });
+
+        const updated = await tx.booking.update({
+          where: { id: booking.id },
+          data: {
+            status: "rejected",
+            // reason: reason ?? null, // si tu as un champ 'reason'
+            // rejectedAt: new Date(),  // si tu as un champ 'rejectedAt'
+          },
+          select: {
+            id: true,
+            updatedAt: true,
+          },
+        });
+
+        return {
+          booking_id: updated.id,
+          rejected_at: new Date(updated.updatedAt).toISOString(),
+        };
       }
+    );
 
-      if (booking.trip?.driverId !== userId) {
-        return fail("NOT_OWNER", "Vous n’êtes pas le conducteur de ce trajet.");
-      }
-
-      if (booking.status === "accepted") {
-        return fail("ALREADY_ACCEPTED", "Réservation déjà acceptée.");
-      }
-      if (booking.status === "rejected") {
-        return fail("ALREADY_REJECTED", "Réservation déjà refusée.");
-      }
-      if (booking.status !== "pending") {
-        return fail("BOOKING_NOT_PENDING", "Réservation non en attente.");
-      }
-
-      const updatedBooking = await tx.booking.update({
-        where: { id: bookingId, status: "pending" },
-        data: { status: "rejected" },
-      });
-
-      return { ok: true as const, data: { bookingId: updatedBooking.id } };
-    });
-
-    return result;
-  } catch (e) {
+    return {
+      ok: true,
+      data: {
+        booking_id: result.booking_id,
+        status: "rejected",
+        rejected_at: result.rejected_at,
+      },
+    };
+  } catch (e: any) {
     console.error(e);
-    return { ok: false, error: "Erreur serveur.", code: "UNKNOWN" };
+    const code =
+      typeof e?.message === "string" ? e.message : "REJECT_BOOKING_FAILED";
+    const human =
+      code === "BOOKING_NOT_FOUND"
+        ? "Réservation introuvable."
+        : code === "BOOKING_NOT_PENDING"
+        ? "La réservation n'est pas en statut pending."
+        : "Impossible de rejeter la réservation.";
+    return { ok: false, error: human };
   }
-}
-
-function fail(code: ActionErrorCode, error: string): ActionResult<never> {
-  return { ok: false, error, code };
 }
