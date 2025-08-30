@@ -1,12 +1,12 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
   "installCommand": "npm install --no-audit --no-fund",
   "buildCommand": "npm run build",
-  "version": 2,
   "functions": {
-    "api/*.js": {
-      "runtime": "nodejs20.x",
-      "maxDuration": 10
-    }
-  }
+    "api/**": { "runtime": "nodejs20.x", "maxDuration": 10 }
+  },
+  "rewrites": [],
+  "redirects": [],
+  "headers": []
 }
- 
