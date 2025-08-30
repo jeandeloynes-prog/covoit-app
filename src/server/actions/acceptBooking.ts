@@ -132,11 +132,12 @@ export async function acceptBooking(
       return { ok: false, error: result.code, code: result.code };
     }
     return { ok: true, data: result.data };
-  } catch (e) {
-    // Log en dev si besoin
-    // console.error(e);
+  } catch (_e) {
     return { ok: false, error: "Unexpected error.", code: "UNKNOWN" };
   }
 }
+
+// Alias pour correspondre à l’import existant dans DriverInbox
+export const acceptBookingAction = acceptBooking;
 
 export default acceptBooking;
