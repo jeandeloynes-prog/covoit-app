@@ -93,9 +93,10 @@ export function DriverInbox() {
       setRows(next);
 
       const res =
-        action === "accept"
-          ? await acceptBookingAction({ bookingId })
-          : await rejectBookingAction({ bookingId });
+      action === "accept"
+    ? await acceptBookingAction({ booking_id: bookingId })
+    : await rejectBookingAction({ booking_id: bookingId });
+
 
       if (!res.ok) {
         // rollback
