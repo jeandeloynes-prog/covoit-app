@@ -12,11 +12,7 @@ type AcceptBookingData = {
 };
 
 /**
- * Accepte une réservation si:
- * - la réservation existe et est en statut PENDING
- * - l'utilisateur courant est le propriétaire (driver) du trajet
- * - il reste des places
- * La logique est protégée contre les races via updateMany/count.
+ * Implémentation interne: accepte une réservation par son id.
  */
 export async function acceptBooking(
   bookingId: string
@@ -77,7 +73,6 @@ export async function acceptBooking(
       const tripUpdate = await tx.trip.updateMany({
         where: {
           id: trip.id,
-          // encore dispo au moment de l'incrément
           seatsTaken: { lt: trip.seats },
         },
         data: { seatsTaken: { increment: 1 } },
@@ -96,7 +91,6 @@ export async function acceptBooking(
 
       if (bookingUpdate.count === 0) {
         // Le statut a changé pendant la transaction
-        // (ex: déjà accepté/rejeté ailleurs)
         // On annule l’incrément précédemment fait pour rester consistant
         await tx.trip.update({
           where: { id: trip.id },
@@ -137,7 +131,12 @@ export async function acceptBooking(
   }
 }
 
-// Alias pour correspondre à l’import existant dans DriverInbox
-export const acceptBookingAction = acceptBooking;
+/**
+ * Wrapper action attendu par l’UI:
+ * accepte un objet { bookingId } comme dans DriverInbox.tsx.
+ */
+export async function acceptBookingAction(args: { bookingId: string }) {
+  return acceptBooking(args.bookingId);
+}
 
 export default acceptBooking;
